@@ -87,15 +87,16 @@ class TestLowMemorySelection(unittest.TestCase):
             {"max_clip_duration": 2},
         ]
         for case in cases:
-            with self.subTest(case=case), (
-                patch.object(video, "AudioFileClip", return_value=_Audio()),
-                patch.object(lowmem, "combine_one_source") as fast,
-                patch.object(video, "_open_video_clip_quietly", side_effect=RuntimeError("legacy decoder")) as legacy,
-            ):
-                with self.assertRaisesRegex(RuntimeError, "no readable video clips"):
-                    self._combine(**case)
-                legacy.assert_called()
-                fast.assert_not_called()
+            with self.subTest(case=case):
+                with (
+                    patch.object(video, "AudioFileClip", return_value=_Audio()),
+                    patch.object(lowmem, "combine_one_source") as fast,
+                    patch.object(video, "_open_video_clip_quietly", side_effect=RuntimeError("legacy decoder")) as legacy,
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "no readable video clips"):
+                        self._combine(**case)
+                    legacy.assert_called()
+                    fast.assert_not_called()
 
     def test_too_short_source_uses_existing_renderer(self):
         config.app["low_memory_ffmpeg_mode"] = True
