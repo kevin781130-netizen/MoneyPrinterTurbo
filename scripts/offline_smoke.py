@@ -123,5 +123,49 @@ def main():
     return {"PASS": 0, "FAIL": 1, "ENVIRONMENT_BLOCKED": 2}[result["status"]]
 
 
+def _run_opt_in_api_gate() -> int:
+    """Explicit test-service-only mode; default offline smoke is unchanged.
+
+    The Render service cannot run a different startup command via this
+    connector. Opt-in from its MPT_API_E2E=1 environment variable, install the
+    test branch's pinned runtime requirements, then invoke the real HTTP gate.
+    """
+    status = main()
+    if status != 0 or __import__("os").environ.get("MPT_API_E2E") != "1":
+        return status
+
+    if not shutil.which("uv"):
+        print("MPT_API_E2E_ENVIRONMENT_BLOCKED=uv not installed", flush=True)
+        return 2
+
+    print("MPT_API_E2E_INSTALLING_PINNED_REQUIREMENTS", flush=True)
+    install = subprocess.run(
+        [
+            "uv", "pip", "install", "--system",
+            "--overrides", str(REPO_ROOT / "requirements-security.txt"),
+            "-r", str(REPO_ROOT / "requirements.txt"),
+            "httpx==0.28.1",
+        ],
+        cwd=REPO_ROOT,
+        timeout=600,
+        check=False,
+    )
+    if install.returncode:
+        print(f"MPT_API_E2E_ENVIRONMENT_BLOCKED=dependency install exit {install.returncode}", flush=True)
+        return 2
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "api_offline_e2e.py"),
+            "--json-out", "/tmp/mpt-api-e2e-result.json",
+        ],
+        cwd=REPO_ROOT,
+        timeout=310,
+        check=False,
+    )
+    return completed.returncode
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_run_opt_in_api_gate())
