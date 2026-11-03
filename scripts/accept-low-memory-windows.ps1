@@ -28,12 +28,14 @@ $Result = [ordered]@{
     scope = "single-source-no-subtitles-no-bgm-1080-square"
     checks = [ordered]@{
         python = "NOT_RUN"
+        prerequisites = "NOT_RUN"
         ffmpeg = "NOT_RUN"
         ffprobe = "NOT_RUN"
         unit_regressions = "NOT_RUN"
         offline_smoke = "NOT_RUN"
         actual_api_e2e_1080 = "NOT_RUN"
     }
+    prerequisites = $null
     error = $null
 }
 
@@ -61,14 +63,8 @@ try {
     if (-not (Get-Command $Python -ErrorAction SilentlyContinue)) {
         throw "Missing Python executable: $Python"
     }
-    if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
-        throw "Missing ffmpeg on PATH."
-    }
-    $Result.checks.ffmpeg = "PASS"
-    if (-not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
-        throw "Missing ffprobe on PATH."
-    }
-    $Result.checks.ffprobe = "PASS"
+    # FFmpeg/FFprobe codec and runtime validation are handled by the
+    # read-only Python preflight so all blockers appear in one JSON report.
 
     Push-Location $Root
     try {
@@ -85,6 +81,24 @@ try {
         $Result.checks.python = "PASS"
 
         New-Item -ItemType Directory -Path $EvidencePath -Force | Out-Null
+        $Stage = "preflight"
+        $PrereqFile = Join-Path $EvidencePath "mpt-low-memory-prerequisites.json"
+        $PrereqLog = Join-Path $EvidencePath "mpt-low-memory-prerequisites.log"
+        & $Python scripts/check_windows_prereqs.py --json-out $PrereqFile *> $PrereqLog
+        $PrereqExit = $LASTEXITCODE
+        if (-not (Test-Path $PrereqFile)) {
+            throw "Prerequisites produced no evidence. Review $PrereqLog"
+        }
+        $Prereq = Get-Content $PrereqFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $Result.prerequisites = $Prereq
+        if ($PrereqExit -ne 0 -or $Prereq.status -ne "PASS") {
+            $Brief = [string]::Join("; ", @($Prereq.blockers))
+            throw "Windows prerequisites blocked: $Brief. Review $PrereqFile"
+        }
+        $Result.checks.prerequisites = "PASS"
+        $Result.checks.ffmpeg = "PASS"
+        $Result.checks.ffprobe = "PASS"
+
         $Stage = "unit_regressions"
         $UnitLog = Join-Path $EvidencePath "mpt-low-memory-unit.log"
         & $Python -m unittest test.services.test_ffmpeg_low_memory -v *> $UnitLog
