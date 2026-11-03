@@ -54,6 +54,9 @@ def run() -> dict:
         config.app["upload_post_api_key"] = ""
         config.app["video_codec"] = "libx264"
         config.app["video_clip_concurrency"] = 1
+        low_memory_enabled = os.environ.get("MPT_API_E2E_LOW_MEMORY") == "1"
+        config.app["low_memory_ffmpeg_mode"] = low_memory_enabled
+        print(f"MPT_API_E2E_LOW_MEMORY={int(low_memory_enabled)}", flush=True)
 
         # Render Free can OOM while allocating 1080p MoviePy frames. Only the
         # API acceptance process may opt into a reduced canvas; all real task,
@@ -158,6 +161,7 @@ def run() -> dict:
             "status": "PASS", "scope": "real-fastapi-local-source-no-paid-provider",
             "checks": checks, "duration_seconds": duration, "width": resolution,
             "production_resolution_tested": resolution == 1080,
+            "low_memory_ffmpeg_enabled": low_memory_enabled,
             "source_resolution": source_resolution,
             "height": resolution, "output_bytes": output.stat().st_size,
             "elapsed_seconds": round(time.monotonic() - started, 2)
