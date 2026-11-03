@@ -42,6 +42,7 @@ from app.models.schema import (
     VideoTransitionMode,
 )
 from app.services import bgm as bgm_service
+from app.services import ffmpeg_low_memory
 from app.services.utils import subtitle_shaping, video_effects
 from app.utils import file_security, logging_utils, utils
 from app.utils.subtitle_reader import moviepy_subtitles
@@ -1023,6 +1024,31 @@ def combine_videos(
     fit_mode = VideoFitMode(video_fit_mode)
     video_width, video_height = aspect.to_resolution()
 
+    # Explicit opt-in: stream a single normal-speed clip using FFmpeg instead
+    # of allocating 1080p RGB frames in the MoviePy Python process.
+    # Transition/speed/multi-source cases always retain the original engine.
+    if (
+        config.app.get("low_memory_ffmpeg_mode", False)
+        and len(video_paths) == 1
+        and normalized_clip_speed == 1.0
+        and not transition_value
+        and float(max_clip_duration) >= required_video_duration
+        and ffmpeg_low_memory.source_duration(video_paths[0]) >= required_video_duration
+    ):
+        result = ffmpeg_low_memory.combine_one_source(
+            source=video_paths[0],
+            output_file=combined_video_path,
+            duration=audio_duration,
+            width=video_width,
+            height=video_height,
+            fit_mode=fit_mode.value,
+        )
+        if used_video_paths is not None:
+            used_video_paths.append(video_paths[0])
+        if progress_callback is not None:
+            progress_callback(1.0)
+        return result
+
     processed_clips = []
     subclipped_items = []
     video_duration = 0
@@ -1622,6 +1648,24 @@ def generate_video(
     logger.info(f"  ② audio: {audio_path}")
     logger.info(f"  ③ subtitle: {subtitle_path}")
     logger.info(f"  ④ output: {output_file}")
+
+    # No captions/BGM/effects: stream-copy already-encoded video and mux the
+    # dry voiceover. Every unsupported feature stays on the original MoviePy
+    # renderer, preserving the user's normal output and editing features.
+    if (
+        config.app.get("low_memory_ffmpeg_mode", False)
+        and not params.subtitle_enabled
+        and not bgm_service.should_use_bgm(params.bgm_type, params.bgm_volume)
+        and not bgm_file_override
+    ):
+        ffmpeg_low_memory.mux_dry_voiceover(
+            input_video=video_path,
+            input_audio=audio_path,
+            output_file=output_file,
+            voice_volume=(1.0 if params.voice_volume is None else params.voice_volume),
+            audio_bitrate=audio_bitrate,
+        )
+        return True
 
     # https://github.com/harry0703/MoneyPrinterTurbo/issues/217
     # PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'final-1.mp4.tempTEMP_MPY_wvf_snd.mp3'
