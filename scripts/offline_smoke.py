@@ -30,6 +30,8 @@ def tone(path, frequency):
 
 
 def smoke():
+    if not __debug__:
+        return {"status": "ENVIRONMENT_BLOCKED", "reason": "run without Python -O; assertions must remain enabled"}
     for program in ("ffmpeg", "ffprobe"):
         if not shutil.which(program):
             return {"status": "ENVIRONMENT_BLOCKED", "reason": f"missing {program}"}
