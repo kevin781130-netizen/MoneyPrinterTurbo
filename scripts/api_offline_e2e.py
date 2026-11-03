@@ -40,6 +40,7 @@ def run() -> dict:
             from app import asgi
             from app.config import config
             from app.models import const
+            from app.models.schema import VideoAspect
             from app.services import state as sm
             from app.utils import utils
         except ImportError as exc:
@@ -53,6 +54,21 @@ def run() -> dict:
         config.app["upload_post_api_key"] = ""
         config.app["video_codec"] = "libx264"
         config.app["video_clip_concurrency"] = 1
+
+        # Render Free can OOM while allocating 1080p MoviePy frames. Only the
+        # API acceptance process may opt into a reduced canvas; all real task,
+        # queue, codec, audio, render and download paths remain unchanged.
+        resolution = int(os.environ.get("MPT_API_E2E_RESOLUTION", "1080"))
+        if resolution not in (480, 1080):
+            raise ValueError("MPT_API_E2E_RESOLUTION must be 480 or 1080")
+        if resolution != 1080:
+            original_resolution = VideoAspect.to_resolution
+            def smoke_resolution(self):
+                if self == VideoAspect.square:
+                    return resolution, resolution
+                return original_resolution(self)
+            VideoAspect.to_resolution = smoke_resolution
+            print(f"MPT_API_E2E_TEST_ONLY_RESOLUTION={resolution}", flush=True)
 
         materials_dir = Path(utils.storage_dir("local_videos", create=True))
         material = materials_dir / "api-offline-clip.mp4"
@@ -117,12 +133,12 @@ def run() -> dict:
             streams = info["streams"]
             if not 2.5 <= duration <= 5.0:
                 raise AssertionError(f"unexpected MP4 duration {duration}")
-            if not any(s.get("codec_type") == "video" and s.get("width") == 1080
-                       and s.get("height") == 1080 for s in streams):
-                raise AssertionError(f"missing 1080x1080 video stream: {streams}")
+            if not any(s.get("codec_type") == "video" and s.get("width") == resolution
+                       and s.get("height") == resolution for s in streams):
+                raise AssertionError(f"missing {resolution}x{resolution} video stream: {streams}")
             if not any(s.get("codec_type") == "audio" for s in streams):
                 raise AssertionError("missing MP4 audio stream")
-            checks.append("real final MP4 has production 1080x1080 and audio")
+            checks.append(f"real MP4 has {resolution}x{resolution} video and audio (production resolution only if 1080)")
 
             downloaded = client.get(f"/api/v1/download/{task_id}/final-1.mp4")
             if downloaded.status_code != 200 or downloaded.content[4:8] != b"ftyp":
@@ -133,8 +149,9 @@ def run() -> dict:
 
         return {
             "status": "PASS", "scope": "real-fastapi-local-source-no-paid-provider",
-            "checks": checks, "duration_seconds": duration, "width": 1080,
-            "height": 1080, "output_bytes": output.stat().st_size,
+            "checks": checks, "duration_seconds": duration, "width": resolution,
+            "production_resolution_tested": resolution == 1080,
+            "height": resolution, "output_bytes": output.stat().st_size,
             "elapsed_seconds": round(time.monotonic() - started, 2)
         }
 
