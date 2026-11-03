@@ -154,6 +154,20 @@ def _run_opt_in_api_gate() -> int:
         print(f"MPT_API_E2E_ENVIRONMENT_BLOCKED=dependency install exit {install.returncode}", flush=True)
         return 2
 
+    # Verify fast-path selection and fail-closed behavior before the real
+    # HTTP E2E; do not allow a passing video alone to hide regressions.
+    unit = subprocess.run(
+        [sys.executable, "-m", "unittest",
+         "test.services.test_ffmpeg_low_memory", "-v"],
+        cwd=REPO_ROOT,
+        timeout=180,
+        check=False,
+    )
+    if unit.returncode:
+        print(f"MPT_LOW_MEMORY_REGRESSION_RESULT=FAIL:{unit.returncode}", flush=True)
+        return 1
+    print("MPT_LOW_MEMORY_REGRESSION_RESULT=PASS", flush=True)
+
     completed = subprocess.run(
         [
             sys.executable,
