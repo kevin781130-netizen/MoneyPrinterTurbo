@@ -16,6 +16,12 @@ import sys
 import tempfile
 import wave
 
+# Running "python scripts/offline_smoke.py" prepends scripts/, not the repository
+# root.  Keep imports bound to this checkout, not an unrelated installed package.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 
 def cmd(*args):
     return subprocess.run(args, check=True, capture_output=True, text=True,
