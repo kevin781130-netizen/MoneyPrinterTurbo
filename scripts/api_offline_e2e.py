@@ -70,12 +70,19 @@ def run() -> dict:
             VideoAspect.to_resolution = smoke_resolution
             print(f"MPT_API_E2E_TEST_ONLY_RESOLUTION={resolution}", flush=True)
 
+        # Reproduce 1080p OOM with and without MoviePy enlargement. The source
+        # is a genuine locally encoded video; no renderer is mocked.
+        source_resolution = int(os.environ.get("MPT_API_E2E_SOURCE_RESOLUTION", "540"))
+        if source_resolution not in (540, 1080):
+            raise ValueError("MPT_API_E2E_SOURCE_RESOLUTION must be 540 or 1080")
+        print(f"MPT_API_E2E_SOURCE_RESOLUTION={source_resolution}", flush=True)
         materials_dir = Path(utils.storage_dir("local_videos", create=True))
         material = materials_dir / "api-offline-clip.mp4"
         command([
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
             "-threads", "1", "-f", "lavfi", "-i",
-            "color=c=blue:s=540x540:r=30:d=4.5", "-an", "-c:v", "libx264",
+            f"color=c=blue:s={source_resolution}x{source_resolution}:r=30:d=4.5",
+            "-an", "-c:v", "libx264",
             "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(material)
         ], timeout=120)
 
@@ -151,6 +158,7 @@ def run() -> dict:
             "status": "PASS", "scope": "real-fastapi-local-source-no-paid-provider",
             "checks": checks, "duration_seconds": duration, "width": resolution,
             "production_resolution_tested": resolution == 1080,
+            "source_resolution": source_resolution,
             "height": resolution, "output_bytes": output.stat().st_size,
             "elapsed_seconds": round(time.monotonic() - started, 2)
         }
