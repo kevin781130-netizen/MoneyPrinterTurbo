@@ -141,7 +141,7 @@ def _run_opt_in_api_gate() -> int:
     print("MPT_API_E2E_INSTALLING_PINNED_REQUIREMENTS", flush=True)
     install = subprocess.run(
         [
-            "uv", "pip", "install", "--system",
+            "uv", "pip", "install", "--python", sys.executable,
             "--overrides", str(REPO_ROOT / "requirements-security.txt"),
             "-r", str(REPO_ROOT / "requirements.txt"),
             "httpx==0.28.1",
